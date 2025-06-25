@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MailCraft Desktop</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <h1><i class="fas fa-envelope"></i> MailCraft Desktop</h1>
+            <p>Portable Email Campaign Platform</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="recipients">
+                <i class="fas fa-users"></i> Recipients
+            </button>
+            <button class="tab" data-tab="settings">
+                <i class="fas fa-cog"></i> Settings
+            </button>
+            <button class="tab" data-tab="history">
+                <i class="fas fa-history"></i> History
+            </button>
+        </nav>
+
+        <main class="content">
+            <!-- Recipients Tab -->
+            <div id="recipients" class="tab-content active">
+                <div class="card">
+                    <h3>Upload Campaign Configuration</h3>
+                    <p>Upload a CSV or Excel file with recipient information</p>
+                    
+                    <div class="upload-area" id="uploadArea">
+                        <i class="fas fa-file-upload"></i>
+                        <p>Drag & drop a CSV or Excel file here, or click to select</p>
+                        <button class="btn btn-primary" id="selectFileBtn">
+                            <i class="fas fa-folder-open"></i> Choose File
+                        </button>
+                    </div>
+
+                    <div class="recipients-section" id="recipientsSection" style="display: none;">
+                        <h4>Campaign Emails (<span id="recipientCount">0</span>)</h4>
+                        
+                        <!-- Variables Summary -->
+                        <div id="variablesSummary" class="variables-summary" style="display: none;">
+                            <h5><i class="fas fa-tags"></i> Variables Found in CSV</h5>
+                            <div id="variablesList" class="variables-list">
+                                <!-- Variables will be displayed here -->
+                            </div>
+                        </div>
+                        
+                        <div class="table-controls">
+                            <button class="btn btn-secondary" id="addRecipientBtn" onclick="addNewRecipient()">
+                                <i class="fas fa-plus"></i> Add New Recipient
+                            </button>
+                            <button class="btn btn-secondary" id="saveAllBtn" onclick="saveAllChanges()">
+                                <i class="fas fa-save"></i> Save All Changes
+                            </button>
+                        </div>
+                        
+                        <div class="table-container">
+                            <table class="table" id="recipientsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Email</th>
+                                        <th>Subject</th>
+                                        <th>Body Preview</th>
+                                        <th>Attachment</th>
+                                        <th>Variables</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid">
+                    <div class="card">
+                        <h3>Email Configuration</h3>
+                        <div class="form-group">
+                            <label>Email Format</label>
+                            <select id="emailFormat" class="input">
+                                <option value="HTML">HTML</option>
+                                <option value="TXT">Plain Text</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Send Rate Limit (emails/min)</label>
+                            <input type="number" id="sendRateLimit" class="input" value="10" min="1" max="100">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Priority</label>
+                            <select id="priority" class="input">
+                                <option value="High">High</option>
+                                <option value="Normal" selected>Normal</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Attachments Folder</label>
+                            <div class="folder-input">
+                                <input type="text" id="attachmentFolder" class="input" placeholder="Select folder containing attachment files..." readonly>
+                                <button type="button" class="btn btn-secondary" id="selectFolderBtn">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <small class="help-text">
+                                Campaign will search for attachment files in this folder. 
+                                If a file specified in the recipients list is not found, that email will be skipped.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>Email Preview & Test</h3>
+                        <div class="preview-area" id="previewArea">
+                            <div class="no-preview">
+                                Email preview will appear here after uploading campaign emails...
+                            </div>
+                        </div>
+                        
+                        <div class="test-section">
+                            <input type="email" id="testEmail" class="input" placeholder="Test email address">
+                            <button class="btn btn-secondary" id="sendTestBtn" disabled>
+                                <i class="fas fa-paper-plane"></i> Send Test
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Send Campaign</h3>
+                    <div class="campaign-summary">
+                        <div class="summary-item">
+                            <strong>Total Recipients:</strong> <span id="totalRecipients">0</span>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Email Format:</strong> <span id="summaryFormat">HTML</span>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Send Rate:</strong> <span id="summaryRate">10</span> emails/min
+                        </div>
+                        <div class="summary-item">
+                            <strong>Estimated Time:</strong> <span id="estimatedTime">0</span> minutes
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary btn-large" id="startCampaignBtn" disabled>
+                        <i class="fas fa-rocket"></i> Start Campaign
+                    </button>
+
+                    <!-- Campaign Progress -->
+                    <div id="campaignProgress" class="campaign-progress" style="display: none;">
+                        <h4><i class="fas fa-clock"></i> Campaign in Progress</h4>
+                        <div class="progress-bar">
+                            <div id="progressFill" class="progress-fill"></div>
+                        </div>
+                        <div class="progress-stats">
+                            <span id="progressText">Preparing to send...</span>
+                            <span id="progressCount">0 / 0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Campaigns -->
+                <div id="recentCampaignsCard" class="card" style="display: none;">
+                    <h3><i class="fas fa-history"></i> Recent Campaigns</h3>
+                    <div id="recentCampaignsList" class="recent-campaigns-list">
+                        <!-- Campaign items will be inserted here -->
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Settings Tab -->
+            <div id="settings" class="tab-content">
+                <div class="card">
+                    <h3><i class="fas fa-server"></i> SMTP Email Server Configuration</h3>
+                    <p>Configure your email server settings to send campaigns</p>
+                    
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>SMTP Host</label>
+                            <input type="text" id="smtpHost" class="input" placeholder="smtp.gmail.com">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Port</label>
+                            <input type="number" id="smtpPort" class="input" value="587">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="smtpSecure"> Use SSL/TLS (recommended for port 465)
+                        </label>
+                    </div>
+
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" id="smtpUsername" class="input" placeholder="your-email@gmail.com">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="smtpPassword" class="input" placeholder="your-app-password">
+                        </div>
+                    </div>
+
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>From Email Address</label>
+                            <input type="email" id="fromEmail" class="input" placeholder="noreply@yourcompany.com">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>From Name</label>
+                            <input type="text" id="fromName" class="input" value="MailCraft" placeholder="Your Company Name">
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="saveSettingsBtn">
+                        <i class="fas fa-save"></i> Save Settings
+                    </button>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-vial"></i> Test SMTP Connection</h3>
+                    <p>Send a test email to verify your SMTP configuration</p>
+                    
+                    <div class="test-section">
+                        <input type="email" id="testSmtpEmail" class="input" placeholder="test@example.com">
+                        <button class="btn btn-secondary" id="testSmtpBtn" disabled>
+                            <i class="fas fa-paper-plane"></i> Send Test Email
+                        </button>
+                    </div>
+                    
+                    <div class="info-box" id="smtpWarning" style="display: none;">
+                        Please configure your SMTP settings first before testing the connection.
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Common SMTP Settings</h3>
+                    <div class="grid-3">
+                        <div class="provider-info">
+                            <strong>Gmail</strong>
+                            <div class="provider-details">
+                                Host: smtp.gmail.com<br>
+                                Port: 587 (TLS) or 465 (SSL)<br>
+                                Security: Enable SSL/TLS<br>
+                                Use App Password, not regular password
+                            </div>
+                        </div>
+                        <div class="provider-info">
+                            <strong>Outlook/Hotmail</strong>
+                            <div class="provider-details">
+                                Host: smtp-mail.outlook.com<br>
+                                Port: 587<br>
+                                Security: STARTTLS<br>
+                                Use your regular password
+                            </div>
+                        </div>
+                        <div class="provider-info">
+                            <strong>Yahoo Mail</strong>
+                            <div class="provider-details">
+                                Host: smtp.mail.yahoo.com<br>
+                                Port: 587 or 465<br>
+                                Security: SSL/TLS<br>
+                                Use App Password
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="history" class="tab-content">
+                <div class="card">
+                    <h3><i class="fas fa-history"></i> Recent Campaigns</h3>
+                    <p>View your campaign history and performance</p>
+                    
+                    <div id="campaignHistory" class="campaign-history">
+                        <div class="no-campaigns">
+                            <i class="fas fa-inbox"></i>
+                            <p>No campaigns executed yet</p>
+                            <p>Start by uploading recipients and running your first campaign</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Status messages -->
+    <div id="notification" class="notification"></div>
+
+    <!-- Campaign Report Modal -->
+    <div id="campaignReportModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="reportTitle">Campaign Report</h3>
+                <button class="modal-close" onclick="closeCampaignReport()">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <div id="reportSummary" class="report-summary">
+                    <!-- Summary will be populated here -->
+                </div>
+                
+                <div class="report-filters">
+                    <button class="filter-btn active" data-filter="all" onclick="filterResults('all')">
+                        All (<span id="countAll">0</span>)
+                    </button>
+                    <button class="filter-btn" data-filter="failed" onclick="filterResults('failed')">
+                        Failed (<span id="countFailed">0</span>)
+                    </button>
+                    <button class="filter-btn" data-filter="sent" onclick="filterResults('sent')">
+                        Sent (<span id="countSent">0</span>)
+                    </button>
+                </div>
+                
+                <div id="reportResults" class="report-results">
+                    <!-- Email results will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app-safe.js"></script>
+</body>
+</html>
