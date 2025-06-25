@@ -9,8 +9,17 @@ let attachmentFolderPath = '';
 let currentPage = 1;
 let recipientsPerPage = 10;
 
+// Campaign pagination state
+let allCampaigns = [];
+let currentCampaignPage = 1;
+let campaignsPerPage = 10;
+
 // Editing state
 let editingRowIndex = -1;
+
+// Event listener cleanup tracking
+let globalEventListeners = [];
+let componentEventListeners = new Map();
 
 // Debounce function to prevent rapid input events
 function debounce(func, wait) {
@@ -40,16 +49,32 @@ function safeEventHandler(handler) {
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     try {
+        // Global drag and drop handling - prevent default file opening
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        
+        window.addEventListener('drop', (e) => {
+            e.preventDefault(); // Always prevent default to stop file dialogs
+            e.stopPropagation();
+        });
+        
         initializeTabs();
         initializeRecipients();
         initializeSettings();
-        initializeHistory();
         setupProgressListener();
         loadSmtpSettings();
         loadRecentCampaigns();
     } catch (error) {
         console.error('Initialization error:', error);
     }
+});
+
+// Cleanup on window unload
+window.addEventListener('beforeunload', () => {
+    clearEventListeners();
+    currentRecipients.length = 0;
+    cleanupMemory();
 });
 
 // Tab management
@@ -79,11 +104,17 @@ function initializeRecipients() {
     const sendTestBtn = document.getElementById('sendTestBtn');
     const startCampaignBtn = document.getElementById('startCampaignBtn');
     const selectFolderBtn = document.getElementById('selectFolderBtn');
+    const uploadArea = document.getElementById('uploadArea');
     
     if (selectFileBtn) selectFileBtn.addEventListener('click', safeEventHandler(selectFile));
     if (sendTestBtn) sendTestBtn.addEventListener('click', safeEventHandler(sendTestEmail));
     if (startCampaignBtn) startCampaignBtn.addEventListener('click', safeEventHandler(startCampaign));
     if (selectFolderBtn) selectFolderBtn.addEventListener('click', safeEventHandler(selectAttachmentFolder));
+    
+    // Setup drag and drop
+    if (uploadArea) {
+        setupDragAndDrop(uploadArea);
+    }
     
     // Update summary when settings change - with debounce
     const emailFormat = document.getElementById('emailFormat');
@@ -190,6 +221,13 @@ function parseCSV(csvContent) {
 
 async function processFile(fileData) {
     try {
+        // Clean up previous data
+        if (currentRecipients.length > 0) {
+            clearEventListeners();
+            currentRecipients.length = 0;
+            cleanupMemory();
+        }
+        
         const fileName = fileData.fileName.toLowerCase();
         let recipients = [];
         
@@ -310,9 +348,34 @@ async function processFile(fileData) {
     }
 }
 
+// Clear previous event listeners to prevent memory leaks
+function clearEventListeners() {
+    // Clear component-specific listeners
+    componentEventListeners.forEach((listeners, element) => {
+        listeners.forEach(({ event, handler }) => {
+            if (element && element.removeEventListener) {
+                element.removeEventListener(event, handler);
+            }
+        });
+    });
+    componentEventListeners.clear();
+}
+
+// Add tracked event listener
+function addTrackedEventListener(element, event, handler) {
+    if (!componentEventListeners.has(element)) {
+        componentEventListeners.set(element, []);
+    }
+    componentEventListeners.get(element).push({ event, handler });
+    element.addEventListener(event, handler);
+}
+
 // Display recipients with pagination
 function displayRecipients(recipients) {
     try {
+        // Clear previous event listeners to prevent memory leaks
+        clearEventListeners();
+        
         const recipientsSection = document.getElementById('recipientsSection');
         const recipientCount = document.getElementById('recipientCount');
         const table = document.getElementById('recipientsTable');
@@ -330,9 +393,11 @@ function displayRecipients(recipients) {
         // Get all unique variable names
         const allVariables = new Set();
         recipients.forEach(recipient => {
-            Object.keys(recipient.variables).forEach(varName => {
-                allVariables.add(varName);
-            });
+            if (recipient.variables) {
+                Object.keys(recipient.variables).forEach(varName => {
+                    allVariables.add(varName);
+                });
+            }
         });
         const variableNames = Array.from(allVariables).sort();
         
@@ -346,7 +411,10 @@ function displayRecipients(recipients) {
             <th>Actions</th>
         `;
         
-        tableBody.innerHTML = '';
+        // Clear table body completely to free memory
+        while (tableBody.firstChild) {
+            tableBody.removeChild(tableBody.firstChild);
+        }
         
         // Calculate pagination
         const totalPages = Math.ceil(recipients.length / recipientsPerPage);
@@ -413,12 +481,13 @@ function displayRecipients(recipients) {
                     </td>
                 `;
                 
-                // Add click handler for row editing
-                row.addEventListener('click', (e) => {
+                // Add click handler for row editing with tracked cleanup
+                const clickHandler = (e) => {
                     if (!e.target.closest('button')) {
                         editRow(i);
                     }
-                });
+                };
+                addTrackedEventListener(row, 'click', clickHandler);
                 row.style.cursor = 'pointer';
             }
             
@@ -628,6 +697,142 @@ function saveRowEdit(index) {
 function cancelRowEdit() {
     editingRowIndex = -1;
     displayRecipients(currentRecipients);
+}
+
+// Setup drag and drop functionality
+function setupDragAndDrop(uploadArea) {
+    
+    // Highlight drop area when item is dragged over it
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, safeEventHandler((e) => {
+            uploadArea.classList.add('dragover');
+            e.preventDefault();
+            e.stopPropagation();
+        }));
+    });
+
+    ['dragleave'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, safeEventHandler((e) => {
+            // Only remove dragover if we're actually leaving the upload area
+            if (!uploadArea.contains(e.relatedTarget)) {
+                uploadArea.classList.remove('dragover');
+            }
+        }));
+    });
+
+    // Handle file drop
+    uploadArea.addEventListener('drop', safeEventHandler((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadArea.classList.remove('dragover');
+        
+        // Handle the dropped files
+        if (e.dataTransfer.files.length > 0) {
+            handleDroppedFile(e.dataTransfer.files[0]);
+        }
+    }));
+    
+    // Also make the upload area clickable (but not the button inside it)
+    uploadArea.addEventListener('click', safeEventHandler((e) => {
+        if (!e.target.closest('button')) {
+            selectFile();
+        }
+    }));
+}
+
+// Clean up memory for large datasets
+function cleanupMemory() {
+    // Force garbage collection if available
+    if (global.gc) {
+        global.gc();
+    }
+    
+    // Clear any large objects that are no longer needed
+    if (currentRecipients.length > 1000) {
+        console.log('Large dataset detected, cleaning up memory');
+    }
+}
+
+// Handle dropped file
+async function handleDroppedFile(file) {
+    try {
+        if (!file) {
+            return;
+        }
+        
+        // Check file type
+        const fileName = file.name.toLowerCase();
+        const validExtensions = ['.csv', '.xlsx', '.xls'];
+        const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
+        
+        if (!isValidFile) {
+            showNotification('Please drop a CSV or Excel file (.csv, .xlsx, .xls)', 'error');
+            return;
+        }
+        
+        // Clean up previous data before loading new file
+        if (currentRecipients.length > 0) {
+            clearEventListeners();
+            currentRecipients.length = 0; // Clear array efficiently
+            cleanupMemory();
+        }
+        
+        showNotification('Processing file...', 'info');
+        
+        if (fileName.endsWith('.csv')) {
+            // Handle CSV file
+            const text = await file.text();
+            const base64Content = btoa(text);
+            
+            const result = {
+                success: true,
+                filePath: file.name,
+                fileName: file.name,
+                fileType: 'csv',
+                fileContent: base64Content
+            };
+            
+            await processFile(result);
+        } else {
+            // Handle Excel files by sending to main process
+            showNotification('Processing Excel file...', 'info');
+            
+            const arrayBuffer = await file.arrayBuffer();
+            const buffer = new Uint8Array(arrayBuffer);
+            
+            if (typeof require !== 'undefined') {
+                const { ipcRenderer } = require('electron');
+                
+                try {
+                    const result = await ipcRenderer.invoke('process-dropped-excel', buffer, file.name);
+                    
+                    if (result.success) {
+                        // Create a mock file result similar to the file dialog
+                        const mockResult = {
+                            success: true,
+                            filePath: file.name,
+                            fileName: file.name,
+                            fileType: 'excel',
+                            parsedData: result.data
+                        };
+                        
+                        await processFile(mockResult);
+                    } else {
+                        showNotification('Error processing Excel file: ' + result.error, 'error');
+                    }
+                } catch (error) {
+                    console.error('Excel processing error:', error);
+                    showNotification('Error processing Excel file: ' + error.message, 'error');
+                }
+            } else {
+                showNotification('Excel processing not available', 'error');
+            }
+        }
+        
+    } catch (error) {
+        console.error('File drop error:', error);
+        showNotification('Error processing dropped file: ' + error.message, 'error');
+    }
 }
 
 // Change page function
@@ -1047,9 +1252,6 @@ function showNotification(message, type = 'info') {
 }
 
 // History Tab Functions
-function initializeHistory() {
-    loadCampaignHistory();
-}
 
 async function loadCampaignHistory() {
     try {
@@ -1214,18 +1416,25 @@ async function loadRecentCampaigns() {
         const result = await ipcRenderer.invoke('load-campaign-history');
         
         if (result.success && result.data && result.data.length > 0) {
-            displayRecentCampaigns(result.data.slice(0, 5)); // Show last 5 campaigns
+            allCampaigns = result.data; // Store all campaigns
+            currentCampaignPage = 1; // Reset to first page
+            displayRecentCampaigns(); // Show paginated campaigns
+        } else {
+            allCampaigns = [];
+            displayRecentCampaigns();
         }
     } catch (error) {
         console.error('Error loading recent campaigns:', error);
+        allCampaigns = [];
+        displayRecentCampaigns();
     }
 }
 
-function displayRecentCampaigns(campaigns) {
+function displayRecentCampaigns() {
     const recentCampaignsCard = document.getElementById('recentCampaignsCard');
     const recentCampaignsList = document.getElementById('recentCampaignsList');
     
-    if (!campaigns || campaigns.length === 0) {
+    if (!allCampaigns || allCampaigns.length === 0) {
         if (recentCampaignsCard) {
             recentCampaignsCard.style.display = 'none';
         }
@@ -1237,8 +1446,15 @@ function displayRecentCampaigns(campaigns) {
         recentCampaignsCard.style.display = 'block';
     }
     
+    // Calculate pagination
+    const totalPages = Math.ceil(allCampaigns.length / campaignsPerPage);
+    const startIndex = (currentCampaignPage - 1) * campaignsPerPage;
+    const endIndex = startIndex + campaignsPerPage;
+    const campaignsToShow = allCampaigns.slice(startIndex, endIndex);
+    
     if (recentCampaignsList) {
-        recentCampaignsList.innerHTML = campaigns.map(campaign => {
+        // Create campaigns list
+        const campaignsHtml = campaignsToShow.map(campaign => {
             const date = new Date(campaign.date);
             const timeAgo = getTimeAgo(date);
             
@@ -1272,6 +1488,43 @@ function displayRecentCampaigns(campaigns) {
                 </div>
             `;
         }).join('');
+        
+        // Create pagination controls
+        const paginationHtml = totalPages > 1 ? `
+            <div class="campaign-pagination">
+                <div class="pagination-info">
+                    Showing ${startIndex + 1}-${Math.min(endIndex, allCampaigns.length)} of ${allCampaigns.length} campaigns
+                </div>
+                <div class="pagination-controls">
+                    <button class="btn btn-secondary" onclick="changeCampaignPage(-1)" ${currentCampaignPage === 1 ? 'disabled' : ''}>
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <span class="page-info">Page ${currentCampaignPage} of ${totalPages}</span>
+                    <button class="btn btn-secondary" onclick="changeCampaignPage(1)" ${currentCampaignPage === totalPages ? 'disabled' : ''}>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        ` : '';
+        
+        recentCampaignsList.innerHTML = campaignsHtml + paginationHtml;
+    }
+}
+
+// Change campaign page function
+function changeCampaignPage(direction) {
+    const totalPages = Math.ceil(allCampaigns.length / campaignsPerPage);
+    const newPage = currentCampaignPage + direction;
+    
+    if (newPage >= 1 && newPage <= totalPages) {
+        currentCampaignPage = newPage;
+        displayRecentCampaigns();
+        
+        // Scroll to top of campaigns list
+        const campaignsCard = document.getElementById('recentCampaignsCard');
+        if (campaignsCard) {
+            campaignsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     }
 }
 

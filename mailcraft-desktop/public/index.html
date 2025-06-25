@@ -21,9 +21,6 @@
             <button class="tab" data-tab="settings">
                 <i class="fas fa-cog"></i> Settings
             </button>
-            <button class="tab" data-tab="history">
-                <i class="fas fa-history"></i> History
-            </button>
         </nav>
 
         <main class="content">
@@ -169,13 +166,14 @@
                     </div>
                 </div>
 
-                <!-- Recent Campaigns -->
+                <!-- All Campaigns -->
                 <div id="recentCampaignsCard" class="card" style="display: none;">
-                    <h3><i class="fas fa-history"></i> Recent Campaigns</h3>
+                    <h3><i class="fas fa-history"></i> All Campaigns</h3>
                     <div id="recentCampaignsList" class="recent-campaigns-list">
                         <!-- Campaign items will be inserted here -->
                     </div>
                 </div>
+
             </div>
 
 
@@ -282,21 +280,6 @@
                 </div>
             </div>
 
-            <!-- History Tab -->
-            <div id="history" class="tab-content">
-                <div class="card">
-                    <h3><i class="fas fa-history"></i> Recent Campaigns</h3>
-                    <p>View your campaign history and performance</p>
-                    
-                    <div id="campaignHistory" class="campaign-history">
-                        <div class="no-campaigns">
-                            <i class="fas fa-inbox"></i>
-                            <p>No campaigns executed yet</p>
-                            <p>Start by uploading recipients and running your first campaign</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </main>
     </div>
 

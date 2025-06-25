@@ -204,6 +204,14 @@ body {
     background-color: #f0f8ff;
 }
 
+.upload-area.dragover {
+    border-color: #28a745;
+    background-color: #f8fff9;
+    border-style: solid;
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
+}
+
 .upload-area i {
     font-size: 48px;
     color: #ccc;
@@ -691,6 +699,40 @@ body {
 .recent-status.running {
     background-color: #cce7ff;
     color: #0056a3;
+}
+
+/* Campaign Pagination */
+.campaign-pagination {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.campaign-pagination .pagination-info {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.campaign-pagination .pagination-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+}
+
+.campaign-pagination .page-info {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+    padding: 0 10px;
+}
+
+.campaign-pagination .btn {
+    min-width: 80px;
 }
 
 /* Variables Summary */
