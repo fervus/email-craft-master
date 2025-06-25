@@ -1030,3 +1030,101 @@ body {
     font-size: 11px;
     color: #666;
 }
+
+/* Pagination Styles */
+.pagination-cell {
+    padding: 15px !important;
+    text-align: center;
+    background-color: #f8f9fa;
+    border-top: 2px solid #e0e0e0;
+}
+
+.pagination-info {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+}
+
+.page-info {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+    padding: 0 10px;
+}
+
+.pagination-controls .btn {
+    min-width: 80px;
+}
+
+.pagination-controls .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+    .pagination-controls {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .pagination-controls .btn {
+        width: 100%;
+        max-width: 120px;
+    }
+}
+
+/* Row Editing Styles */
+.recipient-row {
+    transition: background-color 0.2s ease;
+}
+
+.recipient-row:hover:not(.editing) {
+    background-color: #f0f8ff;
+}
+
+.recipient-row.editing {
+    background-color: #fff3cd;
+    border-left: 4px solid #ffc107;
+}
+
+.view-cell {
+    padding: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.view-cell:hover {
+    background-color: rgba(0, 122, 204, 0.05);
+}
+
+.body-preview {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.editing .table input,
+.editing .table textarea {
+    background-color: white;
+    border-color: #ffc107;
+}
+
+.editing .table input:focus,
+.editing .table textarea:focus {
+    border-color: #e0a800;
+    box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.2);
+}
+
+.table .btn-small {
+    white-space: nowrap;
+}

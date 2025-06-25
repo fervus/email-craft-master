@@ -5,6 +5,13 @@ let currentRecipients = [];
 let currentSmtpSettings = null;
 let attachmentFolderPath = '';
 
+// Pagination state
+let currentPage = 1;
+let recipientsPerPage = 10;
+
+// Editing state
+let editingRowIndex = -1;
+
 // Debounce function to prevent rapid input events
 function debounce(func, wait) {
     let timeout;
@@ -184,13 +191,52 @@ function parseCSV(csvContent) {
 async function processFile(fileData) {
     try {
         const fileName = fileData.fileName.toLowerCase();
-        const fileContent = Buffer.from(fileData.fileContent, 'base64').toString();
-        
         let recipients = [];
         
-        if (fileName.endsWith('.csv')) {
+        if (fileData.fileType === 'excel') {
+            // Handle Excel files (already parsed by main process)
+            console.log('Processing Excel file...');
+            const excelData = fileData.parsedData;
+            
+            if (excelData.length === 0) {
+                throw new Error('Excel file appears to be empty');
+            }
+            
+            console.log('Excel data received:', excelData.length, 'rows');
+            console.log('First row sample:', excelData[0]);
+            
+            // Process each row
+            excelData.forEach((row, index) => {
+                console.log(`Processing row ${index + 1}:`, row);
+                
+                // Extract recipient data with flexible column matching
+                const recipient = {
+                    email: row['recipient email address'] || row['email'] || row['Email'] || '',
+                    subject: row['email title'] || row['subject'] || row['Subject'] || '',
+                    body: row['email text body'] || row['body'] || row['Body'] || row['message'] || '',
+                    attachmentFile: row['email attachment file'] || row['attachment'] || row['Attachment'] || '',
+                    variables: {}
+                };
+                
+                // Store all variables (no replacement during loading)
+                Object.keys(row).forEach(key => {
+                    if (key.toLowerCase().startsWith('var') || key.toLowerCase().includes('variable')) {
+                        recipient.variables[key] = String(row[key] || '');
+                    }
+                });
+                
+                if (recipient.email) {
+                    recipients.push(recipient);
+                    console.log('Added recipient:', recipient.email);
+                } else {
+                    console.log('Skipping row without email:', row);
+                }
+            });
+            
+        } else if (fileName.endsWith('.csv')) {
             console.log('Processing CSV file...');
             
+            const fileContent = Buffer.from(fileData.fileContent, 'base64').toString();
             const { rows, delimiter } = parseCSV(fileContent);
             
             if (rows.length < 2) {
@@ -238,7 +284,7 @@ async function processFile(fileData) {
                 }
             }
         } else {
-            throw new Error('Please use CSV files');
+            throw new Error('Please use CSV or Excel (XLS/XLSX) files');
         }
         
         console.log(`Successfully processed ${recipients.length} recipients`);
@@ -264,7 +310,7 @@ async function processFile(fileData) {
     }
 }
 
-// Display recipients
+// Display recipients with pagination
 function displayRecipients(recipients) {
     try {
         const recipientsSection = document.getElementById('recipientsSection');
@@ -302,47 +348,104 @@ function displayRecipients(recipients) {
         
         tableBody.innerHTML = '';
         
-        const displayCount = Math.min(20, recipients.length); // Show more rows for editing
+        // Calculate pagination
+        const totalPages = Math.ceil(recipients.length / recipientsPerPage);
+        const startIndex = (currentPage - 1) * recipientsPerPage;
+        const endIndex = Math.min(startIndex + recipientsPerPage, recipients.length);
         
-        for (let i = 0; i < displayCount; i++) {
+        // Display current page recipients
+        for (let i = startIndex; i < endIndex; i++) {
             const recipient = recipients[i];
             const row = document.createElement('tr');
             row.dataset.index = i;
+            row.classList.add('recipient-row');
             
-            // Create variable cells
-            const variableCells = variableNames.map(varName => {
-                const value = recipient.variables[varName] || '';
-                return `<td><input type="text" class="variable-input" data-variable="${varName}" value="${escapeHtml(value)}" /></td>`;
-            }).join('');
-            
-            row.innerHTML = `
-                <td><input type="email" class="email-input" value="${escapeHtml(recipient.email)}" /></td>
-                <td><input type="text" class="subject-input" value="${escapeHtml(recipient.subject || '')}" /></td>
-                <td><textarea class="body-input" rows="2">${escapeHtml(recipient.body || '')}</textarea></td>
-                <td><input type="text" class="attachment-input" value="${escapeHtml(recipient.attachmentFile || '')}" /></td>
-                ${variableCells}
-                <td>
-                    <button class="btn btn-small btn-secondary update-btn" onclick="updateRecipient(${i})">
-                        <i class="fas fa-save"></i>
-                    </button>
-                    <button class="btn btn-small btn-danger delete-btn" onclick="deleteRecipient(${i})">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </td>
-            `;
+            if (editingRowIndex === i) {
+                // Editable mode
+                const variableCells = variableNames.map(varName => {
+                    const value = recipient.variables[varName] || '';
+                    return `<td><input type="text" class="variable-input" data-variable="${varName}" value="${escapeHtml(value)}" /></td>`;
+                }).join('');
+                
+                row.innerHTML = `
+                    <td><input type="email" class="email-input" value="${escapeHtml(recipient.email)}" /></td>
+                    <td><input type="text" class="subject-input" value="${escapeHtml(recipient.subject || '')}" /></td>
+                    <td><textarea class="body-input" rows="2">${escapeHtml(recipient.body || '')}</textarea></td>
+                    <td><input type="text" class="attachment-input" value="${escapeHtml(recipient.attachmentFile || '')}" /></td>
+                    ${variableCells}
+                    <td>
+                        <button class="btn btn-small btn-secondary" onclick="saveRowEdit(${i})">
+                            <i class="fas fa-save"></i> Save
+                        </button>
+                        <button class="btn btn-small btn-secondary" onclick="cancelRowEdit()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-small btn-danger" onclick="deleteRecipient(${i})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                row.classList.add('editing');
+            } else {
+                // View mode
+                const variableCells = variableNames.map(varName => {
+                    const value = recipient.variables[varName] || '';
+                    return `<td class="view-cell">${escapeHtml(value)}</td>`;
+                }).join('');
+                
+                const bodyPreview = (recipient.body || '').length > 50 
+                    ? (recipient.body || '').substring(0, 50) + '...' 
+                    : (recipient.body || '');
+                
+                row.innerHTML = `
+                    <td class="view-cell">${escapeHtml(recipient.email)}</td>
+                    <td class="view-cell">${escapeHtml(recipient.subject || '')}</td>
+                    <td class="view-cell body-preview">${escapeHtml(bodyPreview)}</td>
+                    <td class="view-cell">${escapeHtml(recipient.attachmentFile || '')}</td>
+                    ${variableCells}
+                    <td>
+                        <button class="btn btn-small btn-secondary" onclick="editRow(${i})">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-small btn-danger" onclick="deleteRecipient(${i})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                
+                // Add click handler for row editing
+                row.addEventListener('click', (e) => {
+                    if (!e.target.closest('button')) {
+                        editRow(i);
+                    }
+                });
+                row.style.cursor = 'pointer';
+            }
             
             tableBody.appendChild(row);
         }
         
-        if (recipients.length > displayCount) {
-            const infoRow = document.createElement('tr');
+        // Add pagination controls
+        if (recipients.length > recipientsPerPage) {
+            const paginationRow = document.createElement('tr');
             const colCount = 5 + variableNames.length;
-            infoRow.innerHTML = `
-                <td colspan="${colCount}" style="text-align: center; color: #666;">
-                    Showing first ${displayCount} of ${recipients.length} recipients for editing
+            paginationRow.innerHTML = `
+                <td colspan="${colCount}" class="pagination-cell">
+                    <div class="pagination-info">
+                        Showing ${startIndex + 1}-${endIndex} of ${recipients.length} recipients
+                    </div>
+                    <div class="pagination-controls">
+                        <button class="btn btn-small btn-secondary" onclick="changePage(-1)" ${currentPage === 1 ? 'disabled' : ''}>
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+                        <button class="btn btn-small btn-secondary" onclick="changePage(1)" ${currentPage === totalPages ? 'disabled' : ''}>
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
                 </td>
             `;
-            tableBody.appendChild(infoRow);
+            tableBody.appendChild(paginationRow);
         }
         
         // Add event listeners for real-time updates
@@ -438,6 +541,22 @@ function updateRecipient(index) {
 function deleteRecipient(index) {
     if (confirm('Are you sure you want to delete this recipient?')) {
         currentRecipients.splice(index, 1);
+        
+        // Cancel editing if we're deleting the edited row
+        if (editingRowIndex === index) {
+            editingRowIndex = -1;
+        } else if (editingRowIndex > index) {
+            editingRowIndex--;
+        }
+        
+        // Adjust current page if needed
+        const totalPages = Math.ceil(currentRecipients.length / recipientsPerPage);
+        if (currentPage > totalPages && totalPages > 0) {
+            currentPage = totalPages;
+        } else if (currentRecipients.length === 0) {
+            currentPage = 1;
+        }
+        
         displayRecipients(currentRecipients);
         updatePreview();
         updateSummary();
@@ -468,6 +587,11 @@ function addNewRecipient() {
     });
     
     currentRecipients.push(newRecipient);
+    
+    // Go to the last page to show the new recipient
+    const totalPages = Math.ceil(currentRecipients.length / recipientsPerPage);
+    currentPage = totalPages;
+    
     displayRecipients(currentRecipients);
     updateSummary();
     showNotification('New recipient added', 'success');
@@ -479,6 +603,51 @@ function addNewRecipient() {
             table.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }
     }, 100);
+}
+
+// Edit row function
+function editRow(index) {
+    // Cancel any existing edit
+    cancelRowEdit();
+    
+    editingRowIndex = index;
+    displayRecipients(currentRecipients);
+}
+
+// Save row edit function
+function saveRowEdit(index) {
+    updateRecipientFromRow(index);
+    editingRowIndex = -1;
+    displayRecipients(currentRecipients);
+    updatePreview();
+    updateSummary();
+    showNotification(`Recipient ${index + 1} updated`, 'success');
+}
+
+// Cancel row edit function
+function cancelRowEdit() {
+    editingRowIndex = -1;
+    displayRecipients(currentRecipients);
+}
+
+// Change page function
+function changePage(direction) {
+    // Cancel any editing when changing pages
+    cancelRowEdit();
+    
+    const totalPages = Math.ceil(currentRecipients.length / recipientsPerPage);
+    const newPage = currentPage + direction;
+    
+    if (newPage >= 1 && newPage <= totalPages) {
+        currentPage = newPage;
+        displayRecipients(currentRecipients);
+        
+        // Scroll to top of table
+        const table = document.getElementById('recipientsTable');
+        if (table) {
+            table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
 }
 
 // Save all changes
@@ -979,7 +1148,8 @@ function hideCampaignProgress() {
 }
 
 function updateCampaignProgress(progress) {
-    const progressDiv = document.getElementById('campaignProgress');
+    try {
+        const progressDiv = document.getElementById('campaignProgress');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
     const progressCount = document.getElementById('progressCount');
@@ -1032,6 +1202,9 @@ function updateCampaignProgress(progress) {
             deliveryRate: ((progress.sent / progress.total) * 100).toFixed(1),
             status: progress.failed === 0 ? 'success' : progress.sent === 0 ? 'error' : 'partial'
         });
+    }
+    } catch (error) {
+        console.error('Campaign progress update error:', error);
     }
 }
 

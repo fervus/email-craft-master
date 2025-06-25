@@ -10,6 +10,10 @@ const storage = new JsonStorage();
 // Disable hardware acceleration to prevent crashes
 app.disableHardwareAcceleration();
 
+// Enable garbage collection for large campaigns
+app.commandLine.appendSwitch('--expose-gc');
+app.commandLine.appendSwitch('--max-old-space-size', '4096');
+
 function createWindow() {
   console.log('Creating main window...');
   
@@ -63,6 +67,7 @@ ipcMain.handle('open-file-dialog', async (event) => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile'],
       filters: [
+        { name: 'Campaign Files', extensions: ['csv', 'xlsx', 'xls'] },
         { name: 'CSV Files', extensions: ['csv'] },
         { name: 'Excel Files', extensions: ['xlsx', 'xls'] }
       ]
@@ -70,14 +75,29 @@ ipcMain.handle('open-file-dialog', async (event) => {
 
     if (!result.canceled && result.filePaths.length > 0) {
       const filePath = result.filePaths[0];
-      const fileContent = fs.readFileSync(filePath);
+      const fileName = path.basename(filePath);
       
-      return {
-        success: true,
-        filePath,
-        fileName: path.basename(filePath),
-        fileContent: fileContent.toString('base64')
-      };
+      // Handle Excel files differently
+      if (fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls')) {
+        const parsedData = await parseExcelFile(filePath);
+        return {
+          success: true,
+          filePath,
+          fileName,
+          fileType: 'excel',
+          parsedData: parsedData
+        };
+      } else {
+        // Handle CSV files as before
+        const fileContent = fs.readFileSync(filePath);
+        return {
+          success: true,
+          filePath,
+          fileName,
+          fileType: 'csv',
+          fileContent: fileContent.toString('base64')
+        };
+      }
     }
     
     return { success: false, canceled: true };
@@ -86,6 +106,33 @@ ipcMain.handle('open-file-dialog', async (event) => {
     return { success: false, error: error.message };
   }
 });
+
+// Parse Excel file using XLSX library
+async function parseExcelFile(filePath) {
+  try {
+    const XLSX = require('xlsx');
+    
+    // Read the Excel file
+    const workbook = XLSX.readFile(filePath);
+    
+    // Get the first worksheet
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Convert to JSON (array of objects with header row as keys)
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+      defval: '',  // Default value for empty cells
+      raw: false   // Convert all values to strings
+    });
+    
+    console.log(`Parsed Excel file: ${jsonData.length} rows`);
+    return jsonData;
+    
+  } catch (error) {
+    console.error('Error parsing Excel file:', error);
+    throw new Error(`Failed to parse Excel file: ${error.message}`);
+  }
+}
 
 ipcMain.handle('select-folder-dialog', async (event) => {
   try {
@@ -221,6 +268,7 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
     let failedCount = 0;
     const startTime = new Date();
     const emailResults = []; // Track detailed results
+    let lastProgressUpdate = 0;
 
     // Send initial progress update
     event.sender.send('campaign-progress', {
@@ -235,15 +283,19 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
       const recipient = recipients[i];
       
       try {
-        // Send progress update
-        event.sender.send('campaign-progress', {
-          total: recipients.length,
-          sent: sentCount,
-          failed: failedCount,
-          current: i + 1,
-          status: 'sending',
-          currentEmail: recipient.email
-        });
+        // Send progress update only every 5 emails to reduce IPC overhead
+        const now = Date.now();
+        if (i % 5 === 0 || now - lastProgressUpdate > 2000) {
+          event.sender.send('campaign-progress', {
+            total: recipients.length,
+            sent: sentCount,
+            failed: failedCount,
+            current: i + 1,
+            status: 'sending',
+            currentEmail: recipient.email
+          });
+          lastProgressUpdate = now;
+        }
 
         // Apply variable replacements to subject and body
         let emailSubject = recipient.subject || 'No subject';
@@ -291,23 +343,27 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
         }
 
         await transporter.sendMail(mailOptions);
-        emailResults.push({
-          email: recipient.email,
-          subject: emailSubject,
-          status: 'sent',
-          timestamp: new Date().toISOString()
-        });
+        
+        // Only store failed results to save memory for large campaigns
         sentCount++;
         
-        // Rate limiting - 10 emails per minute
-        await new Promise(resolve => setTimeout(resolve, 6000));
+        // Faster rate limiting for large campaigns - 1 email per second
+        const delay = recipients.length > 50 ? 1000 : 6000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Force garbage collection every 50 emails for large campaigns
+        if (recipients.length > 100 && i % 50 === 0 && global.gc) {
+          global.gc();
+        }
         
       } catch (error) {
         const errorMsg = error.message || 'Unknown error occurred';
         console.error(`Failed to send to ${recipient.email}:`, error);
+        
+        // Only store failed email details to reduce memory usage
         emailResults.push({
           email: recipient.email,
-          subject: emailSubject,
+          subject: emailSubject || 'No subject',
           status: 'failed',
           error: errorMsg,
           timestamp: new Date().toISOString()
@@ -325,7 +381,7 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
       status: 'completed'
     });
 
-    // Save campaign result to history
+    // Save campaign result to history (only store failed results to save space)
     const campaignResult = {
       id: Date.now().toString(),
       date: startTime.toISOString(),
@@ -335,7 +391,8 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
       deliveryRate: ((sentCount / recipients.length) * 100).toFixed(1),
       status: failedCount === 0 ? 'success' : sentCount === 0 ? 'error' : 'partial',
       duration: Math.round((Date.now() - startTime.getTime()) / 1000 / 60), // minutes
-      emailResults: emailResults // Store detailed results
+      emailResults: emailResults, // Only failed results stored
+      successfulEmails: sentCount // Just count successful ones
     };
 
     storage.saveCampaignResult(campaignResult);
