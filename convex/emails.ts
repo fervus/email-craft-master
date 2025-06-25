@@ -69,32 +69,25 @@ export const sendCampaignEmails = action({
       await Promise.all(
         batch.map(async (recipient) => {
           try {
-            // Use individual email data if available, otherwise fall back to campaign template
+            // Use individual email data (prioritize individual content)
             let emailSubject = recipient.data.individualSubject || campaign.subject
-            const individualBody = recipient.data.individualBody || campaign.template
+            let emailBody = recipient.data.individualBody || campaign.template
+            
+            console.log(`Final email content for ${recipient.email}:`, {
+              subject: emailSubject,
+              bodyPreview: emailBody?.substring(0, 100) + '...',
+              usingIndividualContent: !!(recipient.data.individualSubject && recipient.data.individualBody)
+            })
             const individualAttachment = recipient.data.individualAttachment
             
-            // For individual emails, use the content directly (already processed with variables)
-            let htmlContent = individualBody
-            let textContent = individualBody
+            let htmlContent: string
+            let textContent: string
             
-            // The subject and body should already be processed with variables replaced,
-            // but if using campaign template, apply standard template processing
-            if (!recipient.data.individualBody) {
-              Object.keys(recipient.data).forEach(key => {
-                const regex = new RegExp(`{{${key}}}`, 'g')
-                emailSubject = emailSubject.replace(regex, recipient.data[key] || '')
-                htmlContent = htmlContent.replace(regex, recipient.data[key] || '')
-                textContent = textContent.replace(regex, recipient.data[key] || '')
-              })
-              
-              emailSubject = emailSubject.replace(/{{email}}/g, recipient.email)
-              emailSubject = emailSubject.replace(/{{name}}/g, recipient.name || '')
-              htmlContent = htmlContent.replace(/{{email}}/g, recipient.email)
-              htmlContent = htmlContent.replace(/{{name}}/g, recipient.name || '')
-              textContent = textContent.replace(/{{email}}/g, recipient.email)
-              textContent = textContent.replace(/{{name}}/g, recipient.name || '')
-            }
+            // For individual emails from uploaded files, the content is already processed with variables
+            // For campaign templates, we need to process template variables
+            // Use the individual email content directly (it's already processed)
+            htmlContent = emailBody
+            textContent = emailBody
 
             // Handle individual attachments
             let emailAttachmentsForRecipient = validAttachments
@@ -234,7 +227,7 @@ export const testSmtpConnection = action({
       console.log("SMTP connection verified successfully")
     } catch (error) {
       console.error("SMTP verification failed:", error)
-      throw new Error(`SMTP connection failed: ${error.message}`)
+      throw new Error(`SMTP connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
 
     // Send a test email

@@ -21,6 +21,14 @@ export const addRecipients = mutation({
       throw new Error("Campaign not found or unauthorized")
     }
 
+    console.log("Adding recipients to database:", args.recipients.map(r => ({
+      email: r.email,
+      hasIndividualSubject: !!r.data.individualSubject,
+      hasIndividualBody: !!r.data.individualBody,
+      individualSubject: r.data.individualSubject,
+      individualBodyPreview: r.data.individualBody?.substring(0, 100) + '...'
+    })))
+
     const recipientIds = await Promise.all(
       args.recipients.map((recipient) =>
         ctx.db.insert("recipients", {

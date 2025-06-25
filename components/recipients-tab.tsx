@@ -467,6 +467,7 @@ export function RecipientsTab({ onCampaignCreated }: RecipientsTabProps) {
   const handleStartCampaign = async () => {
     if (recipients.length === 0) return
 
+    console.log("Starting campaign with recipients:", recipients)
     setIsCreatingCampaign(true)
     try {
       // Create campaign with generic info (will be overridden per recipient)
@@ -480,6 +481,14 @@ export function RecipientsTab({ onCampaignCreated }: RecipientsTabProps) {
       })
 
       // Add recipients with their individual email data
+      console.log("Adding recipients with data:", recipients.map(r => ({
+        email: r.email,
+        subject: r.subject,
+        body: r.body?.substring(0, 100) + '...',
+        hasSubject: !!r.subject,
+        hasBody: !!r.body
+      })))
+      
       await addRecipients({
         campaignId,
         recipients: recipients.map(r => ({

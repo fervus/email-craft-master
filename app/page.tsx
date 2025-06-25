@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AccountMenu } from "@/components/account-menu"
 import { RecipientsTab } from "@/components/recipients-tab"
@@ -12,9 +12,18 @@ import type { Id } from "@/convex/_generated/dataModel"
 export default function Home() {
   const { isLoaded, user } = useUser()
   const [currentCampaignId, setCurrentCampaignId] = useState<Id<"campaigns"> | null>(null)
+  const [mounted, setMounted] = useState(false)
 
-  if (!isLoaded) {
-    return <div>Loading...</div>
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted || !isLoaded) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div>Loading...</div>
+      </div>
+    )
   }
 
   return (
