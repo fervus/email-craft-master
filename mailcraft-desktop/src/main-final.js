@@ -175,6 +175,48 @@ ipcMain.handle('load-smtp-settings', async (event) => {
   }
 });
 
+// Attachment folder settings handlers
+ipcMain.handle('save-attachment-folder', async (event, folderPath) => {
+  try {
+    const success = storage.saveAttachmentFolderPath(folderPath);
+    return { success };
+  } catch (error) {
+    console.error('Save attachment folder error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-attachment-folder', async (event) => {
+  try {
+    const folderPath = storage.getAttachmentFolderPath();
+    return { success: true, folderPath };
+  } catch (error) {
+    console.error('Load attachment folder error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Campaign settings handlers
+ipcMain.handle('save-campaign-settings', async (event, campaignSettings) => {
+  try {
+    const success = storage.saveCampaignSettings(campaignSettings);
+    return { success };
+  } catch (error) {
+    console.error('Save campaign settings error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-campaign-settings', async (event) => {
+  try {
+    const settings = storage.getCampaignSettings();
+    return { success: true, settings };
+  } catch (error) {
+    console.error('Load campaign settings error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // SMTP test handler
 ipcMain.handle('test-smtp-connection', async (event, settings, testEmail) => {
   try {
@@ -246,6 +288,104 @@ ipcMain.handle('send-test-email', async (event, settings, testEmail, recipient) 
   }
 });
 
+// Validate recipient before sending
+function validateRecipient(recipient, attachmentFolderPath) {
+  try {
+    // Basic safety checks
+    if (!recipient || !recipient.email) {
+      return {
+        valid: false,
+        error: 'Invalid recipient data'
+      };
+    }
+
+    // Check if attachment is needed but folder not set
+    if (recipient.attachmentFile && !attachmentFolderPath) {
+      return {
+        valid: false,
+        error: `Attachment file '${recipient.attachmentFile}' specified but no attachment folder is set`
+      };
+    }
+
+  // Check if attachment file exists (if folder is set)
+  if (recipient.attachmentFile && attachmentFolderPath) {
+    const attachmentPath = path.join(attachmentFolderPath, recipient.attachmentFile);
+    if (!fs.existsSync(attachmentPath)) {
+      return {
+        valid: false,
+        error: `Attachment file not found: ${recipient.attachmentFile}`
+      };
+    }
+  }
+
+  // Check for missing variables in subject
+  if (recipient.subject) {
+    const subjectVars = extractVariables(recipient.subject);
+    for (const varName of subjectVars) {
+      if (!recipient.variables || !recipient.variables.hasOwnProperty(varName)) {
+        return {
+          valid: false,
+          error: `Missing required variable '${varName}' in subject - column not found in CSV`
+        };
+      }
+      if (!recipient.variables[varName] || recipient.variables[varName].toString().trim() === '') {
+        return {
+          valid: false,
+          error: `Empty value for required variable '${varName}' in subject`
+        };
+      }
+    }
+  }
+
+  // Check for missing variables in body
+  if (recipient.body) {
+    const bodyVars = extractVariables(recipient.body);
+    for (const varName of bodyVars) {
+      if (!recipient.variables || !recipient.variables.hasOwnProperty(varName)) {
+        return {
+          valid: false,
+          error: `Missing required variable '${varName}' in email body - column not found in CSV`
+        };
+      }
+      if (!recipient.variables[varName] || recipient.variables[varName].toString().trim() === '') {
+        return {
+          valid: false,
+          error: `Empty value for required variable '${varName}' in email body`
+        };
+      }
+    }
+  }
+
+    return { valid: true };
+  } catch (error) {
+    console.error('Validation error:', error);
+    return {
+      valid: false,
+      error: `Validation failed: ${error.message}`
+    };
+  }
+}
+
+// Extract variable names from text (|*varname*| pattern)
+function extractVariables(text) {
+  if (!text || typeof text !== 'string') {
+    return [];
+  }
+  
+  const variablePattern = /\|\*([^*|]+)\*\|/g;
+  const variables = [];
+  let match;
+  let iterations = 0;
+  const maxIterations = 100; // Prevent infinite loops
+  
+  while ((match = variablePattern.exec(text)) !== null && iterations < maxIterations) {
+    variables.push(match[1]);
+    iterations++;
+  }
+  
+  return [...new Set(variables)]; // Remove duplicates
+}
+
 // Campaign sending handler
 ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpSettings, attachmentFolderPath) => {
   try {
@@ -297,6 +437,33 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
           lastProgressUpdate = now;
         }
 
+        // Validate email before sending
+        try {
+          const validationResult = validateRecipient(recipient, attachmentFolderPath);
+          if (!validationResult.valid) {
+            emailResults.push({
+              email: recipient.email || 'Unknown',
+              subject: recipient.subject || 'No subject',
+              status: 'failed',
+              error: validationResult.error,
+              timestamp: new Date().toISOString()
+            });
+            failedCount++;
+            continue;
+          }
+        } catch (validationError) {
+          console.error('Validation error for recipient:', recipient.email, validationError);
+          emailResults.push({
+            email: recipient.email || 'Unknown',
+            subject: recipient.subject || 'No subject',
+            status: 'failed',
+            error: `Validation error: ${validationError.message}`,
+            timestamp: new Date().toISOString()
+          });
+          failedCount++;
+          continue;
+        }
+
         // Apply variable replacements to subject and body
         let emailSubject = recipient.subject || 'No subject';
         let emailBody = recipient.body || 'No content';
@@ -318,28 +485,13 @@ ipcMain.handle('send-campaign-emails', async (event, campaign, recipients, smtpS
           text: emailBody.replace(/<[^>]*>/g, '')
         };
 
-        // Handle attachments if specified
+        // Handle attachments if specified (validation already done)
         if (recipient.attachmentFile && attachmentFolderPath) {
           const attachmentPath = path.join(attachmentFolderPath, recipient.attachmentFile);
-          
-          if (fs.existsSync(attachmentPath)) {
-            mailOptions.attachments = [{
-              filename: recipient.attachmentFile,
-              path: attachmentPath
-            }];
-          } else {
-            const errorMsg = `Attachment file not found: ${recipient.attachmentFile}`;
-            console.log(errorMsg);
-            emailResults.push({
-              email: recipient.email,
-              subject: emailSubject,
-              status: 'failed',
-              error: errorMsg,
-              timestamp: new Date().toISOString()
-            });
-            failedCount++;
-            continue;
-          }
+          mailOptions.attachments = [{
+            filename: recipient.attachmentFile,
+            path: attachmentPath
+          }];
         }
 
         await transporter.sendMail(mailOptions);
@@ -429,6 +581,41 @@ ipcMain.handle('get-campaign-details', async (event, campaignId) => {
   } catch (error) {
     console.error('Get campaign details error:', error);
     return { success: false, error: error.message };
+  }
+});
+
+// Handle dropped Excel files
+ipcMain.handle('process-dropped-excel', async (event, fileBuffer, fileName) => {
+  try {
+    console.log('Processing dropped Excel file:', fileName);
+    const XLSX = require('xlsx');
+    
+    // Create workbook from buffer
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    
+    // Get the first worksheet
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Convert to JSON
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+      defval: '',  // Default value for empty cells
+      raw: false   // Convert all values to strings
+    });
+    
+    console.log(`Parsed dropped Excel file: ${jsonData.length} rows`);
+    return {
+      success: true,
+      data: jsonData,
+      fileName: fileName
+    };
+    
+  } catch (error) {
+    console.error('Error processing dropped Excel file:', error);
+    return { 
+      success: false, 
+      error: error.message 
+    };
   }
 });
 

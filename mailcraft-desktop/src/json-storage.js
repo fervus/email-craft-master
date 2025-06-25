@@ -69,6 +69,28 @@ class JsonStorage {
     
     return this.saveSettings(settings);
   }
+
+  getAttachmentFolderPath() {
+    const settings = this.loadSettings();
+    return settings.attachmentFolderPath || '';
+  }
+
+  saveAttachmentFolderPath(folderPath) {
+    const settings = this.loadSettings();
+    settings.attachmentFolderPath = folderPath;
+    return this.saveSettings(settings);
+  }
+
+  getCampaignSettings() {
+    const settings = this.loadSettings();
+    return settings.campaignSettings || {};
+  }
+
+  saveCampaignSettings(campaignSettings) {
+    const settings = this.loadSettings();
+    settings.campaignSettings = campaignSettings;
+    return this.saveSettings(settings);
+  }
 }
 
 module.exports = JsonStorage;

@@ -64,6 +64,8 @@ document.addEventListener('DOMContentLoaded', function() {
         initializeSettings();
         setupProgressListener();
         loadSmtpSettings();
+        loadAttachmentFolder();
+        loadCampaignSettings();
         loadRecentCampaigns();
     } catch (error) {
         console.error('Initialization error:', error);
@@ -121,9 +123,24 @@ function initializeRecipients() {
     const sendRateLimit = document.getElementById('sendRateLimit');
     const priority = document.getElementById('priority');
     
-    if (emailFormat) emailFormat.addEventListener('change', debounce(updateSummary, 300));
-    if (sendRateLimit) sendRateLimit.addEventListener('input', debounce(updateSummary, 300));
-    if (priority) priority.addEventListener('change', debounce(updateSummary, 300));
+    if (emailFormat) {
+        emailFormat.addEventListener('change', debounce(() => {
+            updateSummary();
+            saveCampaignSettings();
+        }, 300));
+    }
+    if (sendRateLimit) {
+        sendRateLimit.addEventListener('input', debounce(() => {
+            updateSummary();
+            saveCampaignSettings();
+        }, 300));
+    }
+    if (priority) {
+        priority.addEventListener('change', debounce(() => {
+            updateSummary();
+            saveCampaignSettings();
+        }, 300));
+    }
 }
 
 // Settings Tab
@@ -931,37 +948,70 @@ function displayVariablesSummary(recipients) {
     `;
 }
 
-// Update preview
+// Update preview with variable resolution
 function updatePreview() {
     try {
         const previewArea = document.getElementById('previewArea');
         if (!previewArea) return;
         
         if (currentRecipients.length === 0) {
-            previewArea.innerHTML = '<div class="no-preview">Email preview will appear here...</div>';
+            previewArea.innerHTML = '<div class="no-preview">Email preview will appear here after uploading campaign emails...</div>';
             return;
         }
         
+        // Create a copy of the first recipient to avoid modifying the original
         const first = currentRecipients[0];
+        const previewRecipient = {
+            email: first.email,
+            subject: first.subject || '',
+            body: first.body || '',
+            variables: first.variables || {}
+        };
+        
+        // Apply variable replacements to the preview copy
+        if (previewRecipient.variables) {
+            Object.entries(previewRecipient.variables).forEach(([key, value]) => {
+                const varPattern = new RegExp(`\\|\\*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\*\\|`, 'g');
+                if (previewRecipient.subject) {
+                    previewRecipient.subject = previewRecipient.subject.replace(varPattern, value);
+                }
+                if (previewRecipient.body) {
+                    previewRecipient.body = previewRecipient.body.replace(varPattern, value);
+                }
+            });
+        }
+        
+        // Display the preview with resolved variables
+        const resolvedSubject = previewRecipient.subject || 'No subject';
+        const resolvedBody = previewRecipient.body || 'No content';
+        const bodyPreview = resolvedBody.length > 200 ? resolvedBody.substring(0, 200) + '...' : resolvedBody;
+        
         previewArea.innerHTML = `
             <div class="email-preview">
                 <div class="preview-header">
                     <div class="preview-label">Subject</div>
-                    <div>${first.subject || 'No subject'}</div>
+                    <div>${escapeHtml(resolvedSubject)}</div>
                 </div>
                 <div class="preview-header">
                     <div class="preview-label">To</div>
-                    <div>${first.email}</div>
+                    <div>${escapeHtml(previewRecipient.email)}</div>
                 </div>
                 <div class="preview-header">
                     <div class="preview-label">Body Preview</div>
-                    <div>${first.body ? first.body.substring(0, 200) + '...' : 'No content'}</div>
+                    <div class="preview-content">${escapeHtml(bodyPreview)}</div>
                 </div>
             </div>
         `;
     } catch (error) {
         console.error('Error updating preview:', error);
     }
+}
+
+// Helper function to escape HTML for security
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Update summary
@@ -978,7 +1028,7 @@ function updateSummary() {
         
         const total = currentRecipients.length;
         const format = elements.emailFormat ? elements.emailFormat.value : 'HTML';
-        const rate = elements.sendRateLimit ? parseInt(elements.sendRateLimit.value) || 10 : 10;
+        const rate = elements.sendRateLimit ? parseInt(elements.sendRateLimit.value) || 30 : 30;
         
         if (elements.totalRecipients) elements.totalRecipients.textContent = total;
         if (elements.summaryFormat) elements.summaryFormat.textContent = format;
@@ -986,6 +1036,24 @@ function updateSummary() {
         if (elements.estimatedTime) elements.estimatedTime.textContent = Math.ceil(total / rate);
     } catch (error) {
         console.error('Error updating summary:', error);
+    }
+}
+
+// Load attachment folder on startup
+async function loadAttachmentFolder() {
+    try {
+        const result = await ipcRenderer.invoke('load-attachment-folder');
+        
+        if (result.success && result.folderPath) {
+            attachmentFolderPath = result.folderPath;
+            const input = document.getElementById('attachmentFolder');
+            if (input) {
+                input.value = attachmentFolderPath;
+            }
+            console.log('Loaded attachment folder:', attachmentFolderPath);
+        }
+    } catch (error) {
+        console.error('Error loading attachment folder:', error);
     }
 }
 
@@ -998,11 +1066,83 @@ async function selectAttachmentFolder() {
             attachmentFolderPath = result.folderPath;
             const input = document.getElementById('attachmentFolder');
             if (input) input.value = attachmentFolderPath;
-            showNotification('Attachment folder selected!', 'success');
+            
+            // Save the attachment folder path for persistence
+            try {
+                await ipcRenderer.invoke('save-attachment-folder', attachmentFolderPath);
+                showNotification('Attachment folder selected and saved!', 'success');
+            } catch (saveError) {
+                console.error('Error saving attachment folder:', saveError);
+                showNotification('Attachment folder selected but could not be saved!', 'error');
+            }
         }
     } catch (error) {
         console.error('Error selecting folder:', error);
         showNotification('Error selecting folder', 'error');
+    }
+}
+
+// Load campaign settings on startup
+async function loadCampaignSettings() {
+    try {
+        const result = await ipcRenderer.invoke('load-campaign-settings');
+        
+        if (result.success && result.settings) {
+            const settings = result.settings;
+            
+            // Load send rate limit
+            if (settings.sendRateLimit) {
+                const sendRateInput = document.getElementById('sendRateLimit');
+                if (sendRateInput) {
+                    sendRateInput.value = settings.sendRateLimit;
+                }
+            }
+            
+            // Load email format
+            if (settings.emailFormat) {
+                const emailFormatSelect = document.getElementById('emailFormat');
+                if (emailFormatSelect) {
+                    emailFormatSelect.value = settings.emailFormat;
+                }
+            }
+            
+            // Load priority
+            if (settings.priority) {
+                const prioritySelect = document.getElementById('priority');
+                if (prioritySelect) {
+                    prioritySelect.value = settings.priority;
+                }
+            }
+            
+            console.log('Loaded campaign settings:', settings);
+        }
+    } catch (error) {
+        console.error('Error loading campaign settings:', error);
+    }
+}
+
+// Save campaign settings
+async function saveCampaignSettings() {
+    try {
+        const sendRateInput = document.getElementById('sendRateLimit');
+        const emailFormatSelect = document.getElementById('emailFormat');
+        const prioritySelect = document.getElementById('priority');
+        
+        const settings = {
+            sendRateLimit: sendRateInput ? parseInt(sendRateInput.value) : 30,
+            emailFormat: emailFormatSelect ? emailFormatSelect.value : 'HTML',
+            priority: prioritySelect ? prioritySelect.value : 'Normal'
+        };
+        
+        const result = await ipcRenderer.invoke('save-campaign-settings', settings);
+        
+        if (result.success) {
+            console.log('Campaign settings saved:', settings);
+        } else {
+            console.error('Failed to save campaign settings');
+        }
+    } catch (error) {
+        console.error('Error saving campaign settings:', error);
     }
 }
 
@@ -1418,8 +1558,10 @@ async function loadRecentCampaigns() {
         if (result.success && result.data && result.data.length > 0) {
             allCampaigns = result.data; // Store all campaigns
             currentCampaignPage = 1; // Reset to first page
+            console.log(`Loaded ${allCampaigns.length} campaigns for display`);
             displayRecentCampaigns(); // Show paginated campaigns
         } else {
+            console.log('No campaigns found or failed to load');
             allCampaigns = [];
             displayRecentCampaigns();
         }
@@ -1434,7 +1576,10 @@ function displayRecentCampaigns() {
     const recentCampaignsCard = document.getElementById('recentCampaignsCard');
     const recentCampaignsList = document.getElementById('recentCampaignsList');
     
+    console.log(`displayRecentCampaigns called with ${allCampaigns ? allCampaigns.length : 0} campaigns`);
+    
     if (!allCampaigns || allCampaigns.length === 0) {
+        console.log('No campaigns to display');
         if (recentCampaignsCard) {
             recentCampaignsCard.style.display = 'none';
         }
@@ -1444,6 +1589,7 @@ function displayRecentCampaigns() {
     // Show the card
     if (recentCampaignsCard) {
         recentCampaignsCard.style.display = 'block';
+        console.log('Campaign card displayed');
     }
     
     // Calculate pagination
@@ -1489,12 +1635,13 @@ function displayRecentCampaigns() {
             `;
         }).join('');
         
-        // Create pagination controls
-        const paginationHtml = totalPages > 1 ? `
+        // Create pagination controls (always show if campaigns exist)
+        const paginationHtml = allCampaigns.length > 0 ? `
             <div class="campaign-pagination">
                 <div class="pagination-info">
                     Showing ${startIndex + 1}-${Math.min(endIndex, allCampaigns.length)} of ${allCampaigns.length} campaigns
                 </div>
+                ${totalPages > 1 ? `
                 <div class="pagination-controls">
                     <button class="btn btn-secondary" onclick="changeCampaignPage(-1)" ${currentCampaignPage === 1 ? 'disabled' : ''}>
                         <i class="fas fa-chevron-left"></i> Previous
@@ -1504,10 +1651,16 @@ function displayRecentCampaigns() {
                         Next <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
+                ` : `
+                <div class="pagination-controls">
+                    <span class="page-info">Page 1 of 1</span>
+                </div>
+                `}
             </div>
         ` : '';
         
         recentCampaignsList.innerHTML = campaignsHtml + paginationHtml;
+        console.log(`Campaign list updated with ${campaignsToShow.length} campaigns and pagination: ${totalPages} pages`);
     }
 }
 
