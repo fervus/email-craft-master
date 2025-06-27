@@ -1,0 +1,19 @@
+We are going to build a platform that sends emails to a list of recipients using a self-hosted microsoft domain.
+1. The emails should leave from the same email address.
+2. The emails will be configured according to an xls file that has these columns:
+    a. recipient email address
+    b. email title
+    c. email attachment file: path to an email attachment (pdf file) that needs to be attached to each sent email
+    d. email text body with html / txt support and placeholders marked as |*var1*|, |*var2*|, etc..
+    e. columns for var1, var2, etc...
+3. The user will load the above xml file with drag and drop
+
+4. The email attachments need to be loaded by the user with drag and drop in the interface somewhere and stored securely by the platform
+    a. the user will be able to see a list of uploaded files with preview and List management tools like: multi-select, delete selected, delete single item in the list
+    b. When sending it as an email attachment, the outbound email should contain the actual uploaded file, not the link to it as the link will be protected by account
+    c. If a file with the same name is loaded, the old file will be overwritten.
+    d. Storage is always temporary, it should auto-clear after campaign is sent with SUCCESS
+
+5. When sending the actual emails, show a list of the sent emails and add a status for when those emails were sent. Remeber this activity in a MongoDb instance
+6. Add a pixel tracker for when email was displayed and log the tracking in a database
+7. Add secure login to the platform and user management.

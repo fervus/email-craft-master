@@ -19,7 +19,23 @@
       "Bash(git push:*)",
       "Bash(ls:*)",
       "Bash(ssh:*)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(npm create:*)",
+      "Bash(rm:*)",
+      "Bash(npx create-tauri-app:*)",
+      "Bash(npm run tauri:*)",
+      "Bash(npm start)",
+      "Bash(chmod:*)",
+      "Bash(./node_modules/.bin/electron:*)",
+      "Bash(find:*)",
+      "Bash(electron --version)",
+      "Bash(node:*)",
+      "Bash(npm --version)",
+      "Bash(npm ls:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }

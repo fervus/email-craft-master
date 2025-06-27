@@ -7,6 +7,9 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "build": "electron-builder",
+    "build:mac": "electron-builder --mac --publish=never",
+    "build:win": "electron-builder --win --publish=never",
+    "build:portable": "electron-builder --mac --win --publish=never",
     "dist": "electron-builder --publish=never"
   },
   "keywords": [
@@ -25,7 +28,6 @@
     "csv-parser": "^3.0.0",
     "nodemailer": "^6.9.7",
     "papaparse": "^5.5.3",
-    "sqlite3": "^5.1.6",
     "xlsx": "^0.18.5"
   },
   "build": {
@@ -41,13 +43,37 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": "dmg"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ]
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
     },
     "linux": {
       "target": "AppImage"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "portable": {
       "artifactName": "MailCraft-${version}-portable.${ext}"
